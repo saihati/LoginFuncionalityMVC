@@ -1,0 +1,59 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <RoslyCompilerFiles Include="$(CscToolPath)\*">
+      <Link>roslyn\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </RoslyCompilerFiles>
+  </ItemGroup>
+  <Target Name="IncludeRoslynCompilerFilesToFilesForPackagingFromProject" BeforeTargets="PipelineCollectFilesPhase" >
+    <ItemGroup>
+      <FilesForPackagingFromProject Include="@(RoslyCompilerFiles)">
+        <DestinationRelativePath>bin\roslyn\%(RecursiveDir)%(Filename)%(Extension)</DestinationRelativePath>
+        <FromTarget>IncludeRoslynCompilerFilesToFilesForPackagingFromProject</FromTarget>
+        <Category>Run</Category>
+      </FilesForPackagingFromProject>
+    </ItemGroup>
+  </Target>
+  <Target Name="CopyRoslynCompilerFilesToOutputDirectory" AfterTargets="CopyFilesToOutputDirectory">
+    <Copy SourceFiles="@(RoslyCompilerFiles)" DestinationFolder="$(WebProjectOutputDir)\bin\roslyn" ContinueOnError="true" SkipUnchangedFiles="true" Retries="0" />
+    <ItemGroup  Condition="'$(MSBuildLastTaskResult)' == 'True'" >
+      <FileWrites Include="$(WebProjectOutputDir)\bin\roslyn\*" />
+    </ItemGroup>
+  </Target>
+  <Target Name = "KillVBCSCompilerAndRetryCopy" AfterTargets="CopyRoslynCompilerFilesToOutputDirectory" Condition="'$(MSBuildLastTaskResult)' == 'False'" >
+      <Using Namespace="System" />
+      <Using Namespace="System.Linq" />
+      <Using Namespace="System.Diagnostics" />
+      <Using Namespace="System.Management" />
+      <Code Type="Fragment" Language="cs">
+        <![CDATA[
+                try
+                {
+                  foreach(var p in Process.GetProcessesByName(ProcessName))
+                  {
+                      var wmiQuery = "SELECT ProcessId, ExecutablePath FROM Win32_Process WHERE ProcessId = " + p.Id;
+                      using(var searcher = new ManagementObjectSearcher(wmiQuery))
+                      {
+                        using(var results = searcher.Get())
+                          {
+                            var mo = results.Cast<ManagementObject>().FirstOrDefault();
+                            Log.LogMessage("ExecutablePath is {0}", (string)mo["ExecutablePath"]);
+                            if(mo != null && string.Compare((string)mo["ExecutablePath"], ImagePath, StringComparison.OrdinalIgnoreCase) > 0)
+                            {
+                              p.Kill();
+                              Log.LogMessage("{0} is killed", (string)mo["ExecutablePath"]);
+                              break;
+                            }
+                          }
+                      }
+                  }
+                }
+                catch (Exception ex)
+                {
+                  Log.LogErrorFromException(ex);
+                }
+                return true;
+                ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+</Project>
